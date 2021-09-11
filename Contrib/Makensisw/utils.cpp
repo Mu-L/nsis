@@ -79,6 +79,20 @@ bool WriteUTF16LEBOM(HANDLE hFile)
   return WriteFile(hFile, u16lb, sizeof(u16lb));
 }
 
+BOOL InitCCExHelper(UINT icc) {
+  INITCOMMONCONTROLSEX icx = { sizeof(icx), icc };
+  BOOL suppw95 = SupportsW95();
+  FARPROC icce = suppw95 ? GetSysProcAddr("COMCTL32", "InitCommonControlsEx") : (FARPROC) InitCommonControlsEx;
+  return (!suppw95 || icce) && ((BOOL(WINAPI*)(const INITCOMMONCONTROLSEX*))icce)(&icx);
+}
+
+UINT GetScreenBPP(HWND hWnd) {
+  HDC hDc = GetDC(hWnd);
+  UINT bpp = GetDeviceCaps(hDc, BITSPIXEL) * GetDeviceCaps(hDc, PLANES); // TODO: COLORRES if RASTERCAPS&RC_PALETTE?
+  ReleaseDC(hWnd, hDc);
+  return bpp;
+}
+
 int SetArgv(const TCHAR *cmdLine, TCHAR ***argv) {
   const TCHAR *p;
   TCHAR *arg, *argSpace;
@@ -164,8 +178,7 @@ int SetArgv(const TCHAR *cmdLine, TCHAR ***argv) {
 
 void SetTitle(HWND hwnd,const TCHAR *substr) {
   TCHAR title[64];
-  if (substr==NULL) wsprintf(title,_T("MakeNSISW"));
-  else wsprintf(title,_T("MakeNSISW - %s"),substr); 
+  wsprintf(title,substr ? _T("MakeNSISW - %s") : _T("MakeNSISW"),substr);
   SetWindowText(hwnd,title);
 }
 
@@ -183,7 +196,7 @@ void PlayAppSoundAsync(LPCSTR SoundName, int MBFallback) {
   PLAYAPPSOUNDDATA *p = (PLAYAPPSOUNDDATA*) MemAlloc(sizeof(PLAYAPPSOUNDDATA));
   if (p) {
     p->SoundName = SoundName, p->MBFallback = MBFallback; // Note: The string must be valid until the sound has started because we don't copy it
-    HANDLE hThread = CreateThread(NULL, 0, PlayAppSoundProc, p, 0, &tid);
+    HANDLE hThread = CreateThread(NULL, 0, PlayAppSoundProc, p, 0, SupportsW9X() ? &tid : 0);
     if (hThread) CloseHandle(hThread); else PlayAppSoundProc(p);
   }
 }
@@ -205,6 +218,29 @@ void CopyToClipboard(HWND hwnd) {
   SetClipboardData(CF_TEXT, mem);
 #endif
   CloseClipboard();
+}
+
+#include <shlobj.h>
+#if defined(MSFTEDIT_CLASS)
+#include <tom.h>
+#define RE_HAS_TOM
+#define IID_ITextDocument NSIS_IID_ITextDocument
+static const GUID IID_ITextDocument = { 0x8cc497c0, 0xa1df, 0x11ce, { 0x80,0x98,0x0,0xaa,0x0,0x47,0xbe,0x5d } };
+#endif
+void ReleaseLogWindow() {
+#ifdef RE_HAS_TOM
+  if (g_sdata.pLogTextDoc) ((IUnknown*)g_sdata.pLogTextDoc)->Release();
+#endif
+}
+void InitializeLogWindow() {
+#ifdef RE_HAS_TOM
+  IUnknown *pTD = 0, *pREO;
+  if (SendDlgItemMessage(g_sdata.hwnd, IDC_LOGWIN, EM_GETOLEINTERFACE, 0, (LPARAM)&pREO) && pREO) {
+    if (FAILED(pREO->QueryInterface(IID_ITextDocument, (void**) &pTD))) pTD = 0;
+    pREO->Release();
+  }
+  g_sdata.pLogTextDoc = pTD;
+#endif
 }
 
 void SetLogColor(enum LOGCOLOR lc)
@@ -229,10 +265,18 @@ void ClearLog(HWND hwnd) {
 }
 
 void LogMessage(HWND hwnd,const TCHAR *str) {
-  SendDlgItemMessage(hwnd, IDC_LOGWIN, EM_SETSEL, g_sdata.logLength, g_sdata.logLength);
+  HWND hLogWin = GetDlgItem(hwnd, IDC_LOGWIN);
+#ifdef RE_HAS_TOM
+  ITextDocument*pTD = (ITextDocument*) g_sdata.pLogTextDoc;
+  if (pTD) pTD->Freeze(0);
+#endif
+  SendMessage(hLogWin, EM_SETSEL, g_sdata.logLength, g_sdata.logLength);
+  SendMessage(hLogWin, EM_REPLACESEL, 0, (LPARAM)str);
+  SendMessage(hLogWin, EM_SCROLLCARET, 0, 0);
+#ifdef RE_HAS_TOM
+  if (pTD) pTD->Unfreeze(0), InvalidateRect(hLogWin, NULL, false);
+#endif
   g_sdata.logLength += lstrlen(str);
-  SendDlgItemMessage(hwnd, IDC_LOGWIN, EM_REPLACESEL, 0, (LPARAM)str);
-  SendDlgItemMessage(hwnd, IDC_LOGWIN, EM_SCROLLCARET, 0, 0);
 }
 
 void ErrorMessage(HWND hwnd,const TCHAR *str) {
@@ -277,10 +321,11 @@ HWND GetComboEdit(HWND hCB)
   return FindWindowEx(hCB, hList, 0, 0);
 }
 
-void EnableDisableItems(HWND hwnd, int on) 
+void EnableDisableItems(int on) 
 {
-  const HWND hCloseBtn = GetDlgItem(hwnd, IDCANCEL);
-  const HWND hTestBtn = GetDlgItem(hwnd, IDC_TEST);
+  HWND hwndDlg = g_sdata.hwnd;
+  const HWND hCloseBtn = GetDlgItem(hwndDlg, IDCANCEL);
+  const HWND hTestBtn = GetDlgItem(hwndDlg, IDC_TEST);
   const HMENU hMenu = g_sdata.menu;
   const UINT mf = (!on ? MF_GRAYED : MF_ENABLED);
   const UINT nmf = (!on ? MF_ENABLED : MF_GRAYED);
@@ -294,7 +339,7 @@ void EnableDisableItems(HWND hwnd, int on)
     EnableMenuItem(hMenu, IDM_TEST, mf);
   }
   EnableMenuItem(hMenu, IDM_CANCEL, nmf);
-  EnableWindow(hCloseBtn, on);
+  EnableWindow(hCloseBtn, false);
 
   static const PACKEDCMDID_T cmds [] = {
     PACKCMDID(IDM_EXIT), PACKCMDID(IDM_LOADSCRIPT), PACKCMDID(IDM_EDITSCRIPT), 
@@ -309,15 +354,16 @@ void EnableDisableItems(HWND hwnd, int on)
       EnableToolBarButton(id, on);
   }
 
-  SendMessage(g_sdata.hwnd, WM_MAKENSIS_UPDATEUISTATE, 0 ,0);
+  SendMessage(hwndDlg, WM_MAKENSIS_UPDATEUISTATE, 0 ,0);
   EnableMenuItem(hMenu, IDM_FILE, mf); // Disable the whole File menu because of the MRU list
-  DrawMenuBar(g_sdata.hwnd);
+  DrawMenuBar(hwndDlg);
 
   HWND hFocus = g_sdata.focused_hwnd, hOptimal = hTestBtn;
   if (on && hCloseBtn == hFocus) hFocus = hOptimal;
-  if (!IsWindowEnabled(hFocus)) hFocus = GetDlgItem(hwnd, IDC_LOGWIN);
-  SetDialogFocus(hwnd, hOptimal);
-  SetDialogFocus(hwnd, hFocus);
+  if (!IsWindowEnabled(hFocus)) hFocus = GetDlgItem(hwndDlg, IDC_LOGWIN);
+  SetDialogFocus(hwndDlg, hOptimal);
+  SetDialogFocus(hwndDlg, hFocus);
+  SetTimer(hwndDlg, TID_CONFIGURECLOSEORABORT, 1000, 0);
 }
 
 void SetCompressorStats()
@@ -704,21 +750,31 @@ int InitBranding() {
   return retval;
 }
 
+LRESULT SetTooltipText(HWND hWnd, UINT_PTR Id, LPCTSTR Text) {
+  TOOLINFO ti;
+  ti.cbSize = SizeOfStruct(ti);
+  ti.uFlags = Id > 0x7fff ? TTF_IDISHWND : 0;
+  ti.hwnd = hWnd, ti.uId = Id;
+  ti.hinst = g_sdata.hInstance, ti.lpszText = const_cast<LPTSTR>(Text);
+  return SendMessage(g_tip.tip, TTM_UPDATETIPTEXT, 0, (LPARAM) (LPTOOLINFO) &ti); 
+}
+
+void UpdateCloseButtonTooltip() {
+  LPCTSTR txt = g_sdata.thread ? _T("") : CLOSEBTN_TIPTEXT;
+  SetTooltipText(g_tip.tip_p, (UINT_PTR) GetDlgItem(g_sdata.hwnd, IDCANCEL), txt);
+}
+
 void InitTooltips(HWND h) {
   if (h == NULL)  return;
-  memset(&g_tip,0,sizeof(NTOOLTIP));
+  InitCCEx(ICC_BAR_CLASSES);
+  DWORD s = WS_POPUP | WS_BORDER | TTS_ALWAYSTIP, xs = WS_EX_TOOLWINDOW | WS_EX_TOPMOST;
+  g_tip.hook = 0;
   g_tip.tip_p = h;
-  INITCOMMONCONTROLSEX icx;
-  icx.dwSize = sizeof(icx);
-  icx.dwICC  = ICC_BAR_CLASSES;
-  InitCommonControlsEx(&icx);
-  DWORD dwStyle = WS_POPUP | WS_BORDER | TTS_ALWAYSTIP;
-  DWORD dwExStyle = WS_EX_TOOLWINDOW | WS_EX_TOPMOST;
-  g_tip.tip = CreateWindowEx(dwExStyle,TOOLTIPS_CLASS,NULL,dwStyle,0,0,0,0,h,NULL,GetModuleHandle(NULL),NULL);
+  g_tip.tip = CreateWindowEx(xs, TOOLTIPS_CLASS, NULL, s, 0, 0, 0, 0, h, NULL, HINST_APPLICATION, NULL);
   if (!g_tip.tip) return;
-  g_tip.hook = SetWindowsHookEx(WH_GETMESSAGE,TipHookProc,NULL, GetCurrentThreadId());
-  AddTip(GetDlgItem(h,IDCANCEL),_T("Close MakeNSISW"));
-  AddTip(GetDlgItem(h,IDC_TEST),_T("Test the installer generated by MakeNSISW"));
+  g_tip.hook = SetWindowsHookEx(WH_GETMESSAGE, TipHookProc, NULL, GetCurrentThreadId());
+  AddTip(GetDlgItem(h, IDCANCEL), CLOSEBTN_TIPTEXT);
+  AddTip(GetDlgItem(h, IDC_TEST), TESTBTN_TIPTEXT);
   AddToolBarTooltips();
 }
 
@@ -726,9 +782,9 @@ void DestroyTooltips() {
   UnhookWindowsHookEx(g_tip.hook);
 }
 
-void AddTip(HWND hWnd,LPCTSTR lpszToolTip) {
+void AddTip(HWND hWnd, LPCTSTR lpszToolTip) {
   TOOLINFO ti;
-  ti.cbSize = sizeof(TOOLINFO);
+  ti.cbSize = SizeOfStruct(ti);
   ti.uFlags = TTF_IDISHWND;
   ti.hwnd   = g_tip.tip_p;
   ti.uId = (UINT_PTR) hWnd;

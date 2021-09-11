@@ -1,8 +1,30 @@
 \A{history} Changelog and Release Notes
 
+\H{v3.08} 3.08
+
+Released on ???? ??th, 20??
+
+\S1{v3.08-rl} Release Notes
+
+????????
+
+\S1{v3.08-cl} Changelog
+
+\S2{} Major Changes
+
+\b Added \R{uninstfinalize}{!uninstfinalize} (\W{http://sf.net/p/nsis/patches/280}{patch #280}, \W{http://sf.net/p/nsis/bugs/1241}{bug #1241})
+
+\S2{} Minor Changes
+
+\b Disallow start maximized mode
+
+\b Added /LAUNCH compiler switch
+
+\b PEAddResource now supports the res:// protocol
+
 \H{v3.07} 3.07
 
-Released on ??? ??th, 20??
+Released on July 24th, 2021
 
 \S1{v3.07-rl} Release Notes
 
@@ -18,11 +40,19 @@ Unicode is now the default.
 
 \b Added nsExec /MBCS switch
 
+\b Memento now supports overridable storage macros
+
 \b Fixed Unicode compiler crash (\W{http://sf.net/p/nsis/bugs/1254}{bug #1254}, \W{http://sf.net/p/nsis/patches/300}{patch #300})
+
+\b Fixed !addplugindir relative path bug (\W{http://sf.net/p/nsis/bugs/1264}{bug #1264})
+
+\b Fixed StrClb Unicode bug (\W{http://sf.net/p/nsis/patches/302}{patch #302})
+
+\b Fixed $\{GetTime\} hour padding (\W{http://sf.net/p/nsis/bugs/980}{bug #980})
 
 \S2{} Translations
 
-\b Updated Corsican\#{(forum)} and Japanese (maboroshin PR\#{github.com/maboroshin})
+\b Updated Albanian (\W{http://sf.net/p/nsis/patches/303}{patch #303}), Corsican\#{(forum)} and Japanese (maboroshin PR\#{github.com/maboroshin})
 
 \b Fixed clipped Chinese text (\W{http://sf.net/p/nsis/bugs/1261}{bug #1261})
 

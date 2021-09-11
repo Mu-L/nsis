@@ -38,6 +38,7 @@
 #define SupportsW9X() ( sizeof(TCHAR) == 1 )
 #define SupportsW95() ( FALSE && SupportsW9X() && !DpiAwarePerMonitor() )
 #define SupportsW2000() ( sizeof(void*) == 4 )
+#define SupportsRTLUI() ( FALSE ) // UI is English only
 
 static inline bool IsWin9598ME() { return SupportsW9X() && (int) GetVersion() < 0; }
 static inline bool IsWin95() { return SupportsW95() && (GetVersion() & (0x8000FFFF & ~0x0300)) == 0x80000004; }
@@ -88,11 +89,14 @@ static inline bool IsWin95() { return SupportsW95() && (GetVersion() & (0x8000FF
 #define SAVE_BUTTON_TEXT _T("Save")
 #define LOAD_SYMBOL_SET_MESSAGE _T("Please select a name for the Symbol Definitions Set to load.")
 #define SAVE_SYMBOL_SET_MESSAGE _T("Please enter or select a name for the Symbol Definitions Set to save.")
+#define TESTBTN_TIPTEXT _T("Test the generated installer")
+#define CLOSEBTN_TIPTEXT _T("Close MakeNSISW")
 
 #define WM_MAKENSIS_PROCESSCOMPLETE (WM_USER+1001)
 #define WM_MAKENSIS_LOADSYMBOLSET (WM_USER+1002)
 #define WM_MAKENSIS_SAVESYMBOLSET (WM_USER+1003)
 #define WM_MAKENSIS_UPDATEUISTATE (WM_USER+1004)
+#define TID_CONFIGURECLOSEORABORT 1
 
 namespace MakensisAPI {
   extern const TCHAR* SigintEventNameFmt;
@@ -236,6 +240,7 @@ typedef struct NSISScriptData {
   HANDLE sigint_event;
   HANDLE sigint_event_legacy;
   HWND focused_hwnd;
+  void*pLogTextDoc;
   NCOMPRESSOR default_compressor;
   NCOMPRESSOR compressor;
   LPCTSTR compressor_name;

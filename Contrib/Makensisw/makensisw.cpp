@@ -56,10 +56,9 @@ int WINAPI _tWinMain(HINSTANCE hInst,HINSTANCE hOldInst,LPTSTR CmdLineParams,int
   if (SDDA) ((BOOL(WINAPI*)(LPCSTR))SDDA)(""); // Remove the current directory from the default DLL search order
 
   // Try to register the SysLink class
-  DWORD iccestruct[2] = { 8, 0x8000 }; // ICC_LINK_CLASS (ComCtl32v6)
-  FARPROC icce = SupportsW95() ? GetSysProcAddr("COMCTL32", "InitCommonControlsEx") : (FARPROC) InitCommonControlsEx;
-  BOOL succ = ((BOOL(WINAPI*)(const void*))icce)(iccestruct);
-  if (!succ && (sizeof(void*) > 4 || LOBYTE(GetVersion()) >= 5)) // Must check the version because older shell32 versions have a incompatible function at the same ordinal
+  enum { icc_link_class = 0x8000 }; // ComCtl32v6
+  #if (!defined(_MSC_VER) && !defined(_WIN64)) || (defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_IA64))) // x86 or Itanium
+  if (!InitCCEx(icc_link_class) && (sizeof(void*) > 4 || LOBYTE(GetVersion()) >= 5)) // Must check the version because older shell32 versions have a incompatible function at the same ordinal
   {
     FARPROC lwrc = GetSysProcAddr("SHELL32", (LPCSTR) 258); // LinkWindow_RegisterClass
     if (lwrc) ((BOOL(WINAPI*)())lwrc)();
@@ -70,6 +69,7 @@ int WINAPI _tWinMain(HINSTANCE hInst,HINSTANCE hOldInst,LPTSTR CmdLineParams,int
       RegisterClass(&wc); // Superclass the old link window class if SysLink is not available
     }
   }
+  #endif
 
   memset(&g_sdata,0,sizeof(NSCRIPTDATA));
   memset(&g_resize,0,sizeof(NRESIZEDATA));
@@ -262,6 +262,7 @@ INT_PTR CALLBACK DialogProc(HWND hwndDlg, UINT msg, WPARAM wParam, LPARAM lParam
       // Altered by Darren Owen (DrO) on 29/9/2003
       // Added in receiving of mouse and key events from the richedit control
       SendDlgItemMessage(hwndDlg,IDC_LOGWIN,EM_SETEVENTMASK,(WPARAM)NULL,ENM_SELCHANGE|ENM_MOUSEEVENTS|ENM_KEYEVENTS);
+      InitializeLogWindow();
       g_sdata.menu = GetMenu(g_sdata.hwnd);
       g_sdata.fileSubmenu = FindSubMenu(g_sdata.menu, IDM_FILE);
       g_sdata.editSubmenu = FindSubMenu(g_sdata.menu, IDM_EDIT);
@@ -330,6 +331,7 @@ INT_PTR CALLBACK DialogProc(HWND hwndDlg, UINT msg, WPARAM wParam, LPARAM lParam
       SaveSymbols();
       SaveMRUList();
       SaveWindowPos(g_sdata.hwnd);
+      ReleaseLogWindow();
       ImageList_Destroy(g_toolbar.imagelist);
       ImageList_Destroy(g_toolbar.imagelistd);
       ImageList_Destroy(g_toolbar.imagelisth);
@@ -552,7 +554,7 @@ INT_PTR CALLBACK DialogProc(HWND hwndDlg, UINT msg, WPARAM wParam, LPARAM lParam
             GetClientRect(edit, &r);
             if (!PtInRect(&r, pt)) pt.x = pt.y = 0;
             MapWindowPoints(edit, HWND_DESKTOP, &pt, 1);
-            TrackPopupMenu(g_sdata.editSubmenu, TPM_LEFTALIGN | TPM_LEFTBUTTON | TPM_RIGHTBUTTON, pt.x, pt.y, 0, g_sdata.hwnd, 0);
+            TrackPopupMenu(g_sdata.editSubmenu, GetMenuDropAlignment() | TPM_LEFTBUTTON | TPM_RIGHTBUTTON, pt.x, pt.y, 0, g_sdata.hwnd, 0);
           }
           break;
         case TBN_DROPDOWN:
@@ -592,7 +594,7 @@ INT_PTR CALLBACK DialogProc(HWND hwndDlg, UINT msg, WPARAM wParam, LPARAM lParam
           {
             TCHAR buf[MAX_PATH];
             lstrcpyn(buf, FSPath::FindLastComponent(((PROMPT_FILEPATH_DATA*)cds->lpData)->Path), COUNTOF(buf));
-            OPENFILENAME of = { sizeof(of) };
+            OPENFILENAME of = { SizeOfStruct(of) };
             of.hwndOwner = hwndDlg;
             of.lpstrFilter = _T("*.exe\0*.exe\0*\0*.*\0");
             of.lpstrFile = buf, of.nMaxFile = COUNTOF(buf);
@@ -617,6 +619,18 @@ INT_PTR CALLBACK DialogProc(HWND hwndDlg, UINT msg, WPARAM wParam, LPARAM lParam
       static const PACKEDCMDID_T nonemptylogids [] = { PACKCMDID(IDM_COPY), PACKCMDID(IDM_COPYALL), PACKCMDID(IDM_CLEARLOG), PACKCMDID(IDM_SELECTALL) };
       for (i = 0; i < COUNTOF(nonemptylogids); ++i) EnableUICommand(UNPACKCMDID(nonemptylogids[i]), !emptylog);
       EnableUICommand(IDM_BROWSESCR, !!g_sdata.input_script);
+      break;
+    }
+    case WM_TIMER:
+    {
+      HWND hCtl;
+      switch(wParam) {
+        case TID_CONFIGURECLOSEORABORT:
+          SendMessage(hCtl = GetDlgItem(hwndDlg, IDCANCEL), WM_SETTEXT, 0, (LPARAM) (g_sdata.thread ? _T("&Abort") : _T("&Close")));
+          EnableWindow(hCtl, true);
+          UpdateCloseButtonTooltip();
+          return KillTimer(hwndDlg, wParam);
+      }
       break;
     }
     case WM_COMMAND:
@@ -648,7 +662,7 @@ INT_PTR CALLBACK DialogProc(HWND hwndDlg, UINT msg, WPARAM wParam, LPARAM lParam
         case IDM_LOADSCRIPT:
         {
           if (!g_sdata.thread) {
-            OPENFILENAME l={sizeof(l),};
+            OPENFILENAME l = { SizeOfStruct(l) };
             TCHAR buf[MAX_PATH];
             l.hwndOwner = hwndDlg;
             l.lpstrFilter = _T("NSIS Script (*.nsi)\0*.nsi\0All Files (*.*)\0*.*\0");
@@ -743,6 +757,8 @@ INT_PTR CALLBACK DialogProc(HWND hwndDlg, UINT msg, WPARAM wParam, LPARAM lParam
           return TRUE;
         }
         case IDCANCEL:
+          if (g_sdata.thread)
+            return PostMessage(hwndDlg, WM_COMMAND, IDM_CANCEL, 0);
         case IDM_EXIT:
           wParam = 0;
           goto tryquitapp;
@@ -763,7 +779,7 @@ INT_PTR CALLBACK DialogProc(HWND hwndDlg, UINT msg, WPARAM wParam, LPARAM lParam
           return TRUE;
         case IDM_SAVE:
         {
-          OPENFILENAME l={sizeof(l),};
+          OPENFILENAME l = { SizeOfStruct(l) };
           TCHAR buf[MAX_STRING];
           l.hwndOwner = hwndDlg;
           l.lpstrFilter = _T("Log Files (*.log)\0*.log\0Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0");
@@ -951,7 +967,7 @@ static INT_PTR CALLBACK AboutProc(HWND hwndDlg, UINT msg, WPARAM wParam, LPARAM 
         else
         {
           dd.AnimPos = finalpos;
-          SetTimer(hwndDlg, ABOUTDLGDATA::TID_HEADER, INFINITE, NULL);
+          KillTimer(hwndDlg, ABOUTDLGDATA::TID_HEADER);
         }
         InvalidateRect(GetDlgItem(hwndDlg, IDC_ABOUTHEADER), NULL, false);
       }

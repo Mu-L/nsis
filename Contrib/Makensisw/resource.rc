@@ -145,13 +145,17 @@ BEGIN
     "F",            IDM_FIND,               VIRTKEY, CONTROL, NOINVERT
     "L",            IDM_LOADSCRIPT,         VIRTKEY, CONTROL, NOINVERT
     "M",            IDM_RECOMPILE_TEST,     VIRTKEY, CONTROL, NOINVERT
+    VK_F5,          IDM_RECOMPILE_TEST,     VIRTKEY, NOINVERT
     "R",            IDM_RECOMPILE,          VIRTKEY, CONTROL, NOINVERT
+    VK_F7,          IDM_RECOMPILE,          VIRTKEY, NOINVERT
     "S",            IDM_SETTINGS,           VIRTKEY, CONTROL, NOINVERT
     "T",            IDM_TEST,               VIRTKEY, CONTROL, NOINVERT
+    VK_F5,          IDM_TEST,               VIRTKEY, CONTROL, NOINVERT
     VK_F1,          IDM_DOCS,               VIRTKEY, NOINVERT
     "W",            IDM_CLEARLOG,           VIRTKEY, CONTROL, NOINVERT
     "X",            IDM_EXIT,               VIRTKEY, ALT, NOINVERT
     "K",            IDM_CANCEL,             VIRTKEY, CONTROL, NOINVERT
+    VK_CANCEL,      IDM_CANCEL,             VIRTKEY, CONTROL, NOINVERT
 END
 
 
@@ -376,14 +380,10 @@ BEGIN
     IDS_EDITSCRIPT          "Edit Script"
     IDS_BROWSESCR           "Open Script Folder"
     IDS_CLEARLOG            "Clear Log Window"
-    IDS_NSISHOME            "NSIS Homepage"
-    IDS_FORUM               "NSIS Forum"
 END
 
 STRINGTABLE 
 BEGIN
-    IDS_NSISUPDATE          "NSIS Update"
-    IDS_DOCS                "NSIS Users Manual"
     IDS_SCRIPT              "Defined in Script/Compiler Default"
     IDS_ZLIB                "ZLIB"
     IDS_ZLIB_SOLID          "ZLIB (solid)"

@@ -530,7 +530,7 @@ parse_again:
       extern FILE *g_output;
       bool pptok = is_pp_token(tkid), docmd = pptok;
       bool both = TOK_P_VERBOSE == tkid || TOK_P_WARNING == tkid || TOK_P_ECHO == tkid;
-      if (TOK_P_FINALIZE == tkid || TOK_P_PACKEXEHEADER == tkid) docmd = false;
+      if (TOK_P_FINALIZE == tkid || TOK_P_UNINSTFINALIZE == tkid || TOK_P_PACKEXEHEADER == tkid) docmd = false;
       if (docmd && is_unsafe_pp_token(tkid) && preprocessonly > 0) docmd = false;
       if (!docmd || both) _ftprintf(g_output,(_T("%") NPRIs _T("\n")),ppoline.get());
       if (!docmd && !both) return PS_OK;
@@ -2255,7 +2255,7 @@ int CEXEBuild::doCommand(int which_token, LineParser &line)
     case TOK_PEADDRESOURCE:
     {
       init_res_editor();
-      int tokidx = 1, ovr = 0, rep = 0;
+      int tokidx = 1, ovr = 0, rep = 0, result = PS_ERROR;
       if (!_tcsicmp(line.gettoken_str(tokidx), _T("/OVERWRITE"))) // Update the resource even if it exists
         ++ovr, ++tokidx;
       else if (!_tcsicmp(line.gettoken_str(tokidx), _T("/REPLACE"))) // Only update existing resource
@@ -2275,15 +2275,10 @@ int CEXEBuild::doCommand(int which_token, LineParser &line)
         ERROR_MSG(_T("Error: Resource %") NPRIns _T("\n"), rep ? ("does not exist") : ("already exists"));
         return PS_ERROR;
       }
-      int result = PS_ERROR;
-      if (FILE*f = FOPEN(line.gettoken_str(tokidx+0), ("rb")))
+      if (res_editor->UpdateResourceFromExternal(rt, rn, rl, line.gettoken_str(tokidx+0), CResourceEditor::TM_AUTO))
       {
-        if (res_editor->UpdateResource(rt, rn, rl, f, CResourceEditor::TM_AUTO))
-        {
-          SCRIPT_MSG(_T("PEAddResource: %") NPRIs _T("=%") NPRIs _T("\n"), make_friendly_resource_path(rt, rnraw, rl).c_str(), line.gettoken_str(tokidx+0));
-          result = PS_OK;
-        }
-        fclose(f);
+        SCRIPT_MSG(_T("PEAddResource: %") NPRIs _T("=%") NPRIs _T("\n"), make_friendly_resource_path(rt, rnraw, rl).c_str(), line.gettoken_str(tokidx+0));
+        result = PS_OK;
       }
       return result;
     }
@@ -2553,7 +2548,8 @@ int CEXEBuild::doCommand(int which_token, LineParser &line)
     case TOK_P_PACKEXEHEADER:
     return pp_packhdr(line);
     case TOK_P_FINALIZE:
-    return pp_finalize(line);
+    case TOK_P_UNINSTFINALIZE:
+    return pp_finalize(which_token, line);
     case TOK_P_SYSTEMEXEC:
     case TOK_P_EXECUTE:
     case TOK_P_MAKENSIS:
@@ -5123,7 +5119,7 @@ int CEXEBuild::doCommand(int which_token, LineParser &line)
       // Add the DLL to the installer
       if (data_handle == -1)
       {
-        int files_added;
+        int files_added=0;
         const int old_build_allowskipfiles=build_allowskipfiles;
         build_allowskipfiles=1; // on
         const int old_build_overwrite=build_overwrite;
@@ -5136,8 +5132,8 @@ int CEXEBuild::doCommand(int which_token, LineParser &line)
         // because of CEXEBuild::datablock_optimize() that tries to discover
         // duplicates and reuse them.
         ret=do_add_file(dllPath.c_str(),0,0,&files_added,tempDLL,2,&data_handle); // 2 means no size add
-        if (ret != PS_OK) {
-          return ret;
+        if (ret != PS_OK || files_added == 0) {
+          return files_added ? ret : PS_ERROR;
         }
         m_pPlugins->SetDllDataHandle(!!uninstall_mode, command, data_handle);
         build_overwrite=old_build_overwrite;
